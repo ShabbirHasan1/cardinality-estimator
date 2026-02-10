@@ -75,10 +75,16 @@ impl<'a, const P: usize, const W: usize> Array<'a, P, W> {
         false
     }
 
-    /// Create new instance of `Array` representation from vector
+    /// Create new instance of `Array` representation from vector.
+    ///
+    /// The capacity is always rounded up to the next power of two to ensure
+    /// consistency with `From<usize>` which reconstructs the Array assuming
+    /// power-of-2 capacity. This is critical for correct deserialization.
     #[inline]
     pub(crate) fn from_vec(mut arr: Vec<u32>, len: usize) -> Array<'a, P, W> {
-        let cap = arr.len();
+        // Ensure capacity is a power of 2 to match From<usize> expectations
+        let cap = len.next_power_of_two().max(arr.len());
+        arr.resize(cap, 0);
         let ptr = arr.as_mut_ptr();
         std::mem::forget(arr);
         // SAFETY: valid pointer from vector being used to create slice reference
@@ -190,5 +196,33 @@ mod tests {
     #[test]
     fn array_size() {
         assert_eq!(std::mem::size_of::<Array<0, 0>>(), 24);
+    }
+
+    /// Test that `from_vec` correctly handles Vecs with non-power-of-2 capacity.
+    ///
+    /// This reproduces a bug where:
+    /// - `from_vec`: created Array with `cap = vec.len()` (e.g., 100)
+    /// - `From<usize>`: reconstructs with `cap = len.next_power_of_two()` (e.g., 128)
+    ///
+    /// Without the fix, `insert` would write to indices 100-127 thinking there's
+    /// room (since cap=128), but the actual allocation is only 100 elements.
+    #[test]
+    fn test_from_vec_capacity_mismatch() {
+        let len = 100;
+        let vec: Vec<u32> = vec![0; len]; // capacity = 100 (not a power of 2)
+
+        let arr: Array<14, 6> = Array::from_vec(vec, len);
+        let data = arr.to_data();
+
+        // Reconstruct via From<usize> - this assumes cap = 128
+        let mut restored: Array<14, 6> = Array::from(data);
+
+        // Insert 28 times to fill indices 100-127
+        // Without the fix, this overflows the 100-element allocation
+        for i in 0..28 {
+            assert!(restored.insert(i));
+        }
+
+        unsafe { restored.drop() };
     }
 }
