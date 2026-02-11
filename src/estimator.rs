@@ -95,7 +95,7 @@ where
 
     /// Returns the representation type of `CardinalityEstimator`.
     #[inline]
-    pub(crate) fn representation(&self) -> Representation<P, W> {
+    pub(crate) fn representation(&self) -> Representation<'_, P, W> {
         Representation::<P, W>::from_data(self.data)
     }
 
